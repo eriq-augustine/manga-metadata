@@ -27,31 +27,60 @@ TASKS = [
 DEFAULT_OUTPUT_PATH = 'ComicInfo.xml'
 
 class Source(abc.ABC):
+    def __init__(self, cache_dir = None, **kwargs):
+        self._cache_dir = cache_dir
+
     @abc.abstractmethod
-    def search(self, name, cache_dir = None):
+    def search(self, name):
         """
-        Returns:
-            [
-                (id, name, description),
-                ...
-            ]
+        Returns: [
+            (id, name, description),
+            ...
+        ]
         """
 
         pass
 
     @abc.abstractmethod
-    def fetch(self, id, cache_dir = None):
+    def fetch(self, id):
+        """
+        Returns: {
+            ...
+        }
+        """
+
         pass
+
+    def _fetch_url(self, url):
+        cache_path = None
+        if (self._cache_dir is not None):
+            cache_path = os.path.join(self._cache_dir, url)
+            if (os.path.isfile(cache_path)):
+                with open(cache_path, 'r') as file:
+                    return file.read()
+
+        with urllib.request.urlopen(url) as response:
+            html = response.read().decode('utf-8')
+
+        if (cache_path is not None):
+            os.makedirs(os.path.dirname(cache_path), exist_ok = True)
+            with open(cache_path, 'w') as file:
+                file.write(html)
+
+        return html
 
 class MangaUpdates(Source):
     BASE_SEARCH_URL = 'https://www.mangaupdates.com/series.html?search=%s'
+    BASE_FETCH_URL = 'https://www.mangaupdates.com/series/%s'
 
-    def search(self, name, cache_dir = None):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def search(self, name):
         name = re.sub(r'\s+', ' ', name).strip().replace(' ', '+')
         url = MangaUpdates.BASE_SEARCH_URL % (name)
 
-        html = _fetch_url(url, cache_dir = cache_dir)
-
+        html = self._fetch_url(url)
         document = bs4.BeautifulSoup(html, 'html.parser')
 
         results = []
@@ -91,27 +120,17 @@ class MangaUpdates(Source):
 
         return results
 
-    def fetch(self, id, cache_dir = None):
-        # TODO
-        pass
+    def fetch(self, id):
+        metadata = {}
 
-def _fetch_url(url, cache_dir = None):
-    cache_path = None
-    if (cache_dir is not None):
-        cache_path = os.path.join(cache_dir, url)
-        if (os.path.isfile(cache_path)):
-            with open(cache_path, 'r') as file:
-                return file.read()
+        url = MangaUpdates.BASE_FETCH_URL % (id)
+        html = self._fetch_url(url)
+        document = bs4.BeautifulSoup(html, 'html.parser')
 
-    with urllib.request.urlopen(url) as response:
-        html = response.read().decode('utf-8')
+        # TEST
+        print(document)
 
-    if (cache_path is not None):
-        os.makedirs(os.path.dirname(cache_path), exist_ok = True)
-        with open(cache_path, 'w') as file:
-            file.write(html)
-
-    return html
+        return metadata
 
 def _get_int(lower, upper, prompt):
     prompt += ' (Enter "q" or "quit" to exit.): '
@@ -140,25 +159,29 @@ def _get_int(lower, upper, prompt):
 
         return value
 
-def fetch(name, output_path, cache_dir = None):
+def fetch(config):
+    name = config.get('input_value')
     if (name is None):
         raise ValueError("No name provided to fetch.")
 
-    source = MangaUpdates()
+    source = MangaUpdates(**config)
 
-    results = source.search(name, cache_dir = cache_dir)
+    results = source.search(name)
     if (len(results) == 0):
         print("No results found matching name '%s'." % name)
         return 1
 
-    id, title = _pick_result(name, results)
+    id, title = _pick_result(name, results, **config)
     if (id is None):
         print("No matching result selected.")
         return 0
 
-    # TODO
+    metadata = source.fetch(id)
 
-def _pick_result(name, results):
+    # TEST
+    print(metadata)
+
+def _pick_result(name, results, use_first = False, **kwargs):
     if (len(results) == 1):
         return results[0][0], results[0][1]
 
@@ -166,6 +189,10 @@ def _pick_result(name, results):
     sim_results.sort(reverse = True)
 
     print("Found %d possible results." % (len(sim_results)))
+
+    if (use_first):
+        print("Automatically choosing first result.")
+        return sim_results[0][1][0], sim_results[0][1][1]
 
     for i in range(len(sim_results)):
         sim_score, (id, title, description) = sim_results[i]
@@ -178,8 +205,10 @@ def _pick_result(name, results):
     return sim_results[index][1][0], sim_results[index][1][1]
 
 def main(args):
+    config = vars(args)
+
     if (args.task == TASK_FETCH):
-        return fetch(args.input, args.output_path, cache_dir = args.cache_dir)
+        return fetch(config)
     elif (args.task == TASK_READ):
         # TODO
         pass
@@ -201,17 +230,21 @@ def _load_args():
         action = 'store', type = str, choices = TASKS,
         help = 'The task to run.')
 
-    parser.add_argument('-i', '--input', dest = 'input',
+    parser.add_argument('--cache', dest = 'cache_dir',
+        action = 'store', type = str, default = None,
+        help = 'a directory to use for caching (don\'t cache if not specified)')
+
+    parser.add_argument('--first', dest = 'use_first',
+        action = 'store_true', default = False,
+        help = 'when presented with choices, always choose the first option and do not prompt (default: %(default)s)')
+
+    parser.add_argument('-i', '--input', dest = 'input_value',
         action = 'store', type = str, default = None,
         help = 'the input for the task')
 
     parser.add_argument('-o', '--output', dest = 'output_path',
         action = 'store', type = str, default = None,
         help = 'the path to write the output of the task')
-
-    parser.add_argument('--cache', dest = 'cache_dir',
-        action = 'store', type = str, default = None,
-        help = 'a directory to use for caching (don\'t cache if not specified)')
 
     return parser.parse_args()
 
