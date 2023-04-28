@@ -4,10 +4,12 @@ Handle manga metadata.
 
 import abc
 import argparse
+import json
 import os
 import re
 import sys
 import urllib.request
+import xml.etree.ElementTree
 
 import Levenshtein
 import bs4
@@ -25,6 +27,54 @@ TASKS = [
 ]
 
 DEFAULT_OUTPUT_PATH = 'ComicInfo.xml'
+
+class Metadata(object):
+    COMIC_INFO_KEY_ORDER = [
+        'Title', 'Series', 'Number', 'Count', 'Volume',
+        'AlternateSeries', 'AlternateNumber', 'AlternateCount',
+        'Summary', 'Notes', 'Year', 'Month', 'Day',
+        'Writer', 'Penciller', 'Inker', 'Colorist', 'Letterer', 'CoverArtist', 'Editor', 'Publisher',
+        'Imprint', 'Genre', 'Web', 'PageCount', 'LanguageISO', 'Format', 'BlackAndWhite', 'Manga',
+        'Characters', 'Teams', 'Locations', 'ScanInformation', 'StoryArc', 'SeriesGroup', 'AgeRating',
+        'Pages', 'CommunityRating', 'MainCharacterOrTeam', 'Review'
+    ]
+
+    def __init__(self):
+        self._data = {
+            'Manga': 'Yes',
+            'Notes': '{}',
+        }
+
+    def __getitem__(self, key):
+        return self._data[key]
+
+    def __setitem__(self, key, value):
+        self._data[key] = value
+
+    def put_note(self, key, value):
+        notes = json.loads(self._data['Notes'])
+        notes[key] = value
+        self._data['Notes'] = json.dumps(notes)
+
+    def __repr__(self):
+        return json.dumps(self._data, indent = 4)
+
+    def to_xml(self):
+        root = xml.etree.ElementTree.Element('ComicInfo')
+
+        for key in Metadata.COMIC_INFO_KEY_ORDER:
+            if (key not in self._data):
+                continue
+
+            node = xml.etree.ElementTree.SubElement(root, key)
+            node.text = self._data[key]
+
+        xml.etree.ElementTree.indent(root, space = '    ')
+        return xml.etree.ElementTree.tostring(root, encoding = 'unicode')
+
+    def write_xml(self, path):
+        with open(path, 'w') as file:
+            file.write(self.to_xml() + "\n")
 
 class Source(abc.ABC):
     def __init__(self, cache_dir = None, **kwargs):
@@ -121,16 +171,77 @@ class MangaUpdates(Source):
         return results
 
     def fetch(self, id):
-        metadata = {}
+        metadata = Metadata()
 
         url = MangaUpdates.BASE_FETCH_URL % (id)
         html = self._fetch_url(url)
         document = bs4.BeautifulSoup(html, 'html.parser')
 
-        # TEST
-        print(document)
+        metadata['Title'] = document.select_one('span.releasestitle').get_text()
+        metadata['Series'] = metadata['Title']
+        metadata['Summary'] = document.select_one('div#div_desc_more').contents[0].strip()
+
+        metadata['Year'] = self._parse_single_section('Year', document)
+        metadata['Writer'] = ','.join(self._parse_multi_section('Author(s)', document))
+        metadata['Penciller'] = ','.join(self._parse_multi_section('Artist(s)', document))
+        metadata['Publisher'] = ','.join(self._parse_multi_section('Original Publisher', document))
+        metadata['Web'] = url
+
+        self._parse_associated_name(document, metadata)
+        self._parse_genres(document, metadata)
+        self._parse_tags(document, metadata)
 
         return metadata
+
+    def _parse_single_section(self, label, document):
+        values = self._parse_multi_section(label, document)
+        if ((values is None) or (len(values) == 0)):
+            return None
+
+        return values[0]
+
+    def _parse_multi_section(self, label, document):
+        header = document.find('div', 'sCat', string = label)
+        if (header is None):
+            return None
+
+        node = header.find_next_sibling('div')
+        if (node is None):
+            return None
+
+        text = node.get_text("\n").strip()
+
+        values = [re.sub(r'\s+', ' ', name).strip() for name in text.split("\n")]
+        values = [value for value in values if value != '']
+        values.sort()
+
+        return values
+
+    def _parse_associated_name(self, document, metadata):
+        values = self._parse_multi_section('Associated Names', document)
+        if (values is None):
+            return
+
+        metadata.put_note('associated_names', values)
+
+    def _parse_genres(self, document, metadata):
+        values = self._parse_multi_section('Genre', document)
+        if (values is None):
+            return
+
+        values.remove('Search for series of same genre(s)')
+
+        metadata['Genre'] = ','.join(values)
+
+    def _parse_tags(self, document, metadata):
+        values = self._parse_multi_section('Categories', document)
+        if (values is None):
+            return
+
+        values.remove('Log in to vote!')
+        values.remove('Show all (some hidden)')
+
+        metadata['Tags'] = ','.join(values)
 
 def _get_int(lower, upper, prompt):
     prompt += ' (Enter "q" or "quit" to exit.): '
@@ -144,7 +255,7 @@ def _get_int(lower, upper, prompt):
 
         if (text == ''):
             continue
-        
+
         if (text.lower() in ['q', 'quit']):
             return None
 
@@ -178,8 +289,12 @@ def fetch(config):
 
     metadata = source.fetch(id)
 
-    # TEST
-    print(metadata)
+    out_path = config.get('output_path')
+    if (out_path is None):
+        out_path = DEFAULT_OUTPUT_PATH
+
+    print("Writing output to '%s'." % (out_path))
+    metadata.write_xml(out_path)
 
 def _pick_result(name, results, use_first = False, **kwargs):
     if (len(results) == 1):
