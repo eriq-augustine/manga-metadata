@@ -3,8 +3,17 @@ Common code for manga metadata.
 """
 
 import json
+import os
 import re
+import shutil
+import tempfile
 import xml.etree.ElementTree
+import zipfile
+
+ENCODING = 'utf-8'
+METADATA_FILENAME = 'ComicInfo.xml'
+METADATA_FILENAME_REGEX = r'ComicInfo\.xml'
+TEMP_ZIP_FILENAME = 'temp.zip'
 
 class Metadata(object):
     COMIC_INFO_KEY_ORDER = [
@@ -17,11 +26,13 @@ class Metadata(object):
         'Pages', 'CommunityRating', 'MainCharacterOrTeam', 'Review'
     ]
 
-    def __init__(self):
+    def __init__(self, data = {}):
         self._data = {
             'Manga': 'Yes',
             'Notes': '{}',
         }
+
+        self._data.update(data)
 
     def __getitem__(self, key):
         return self._data[key]
@@ -35,7 +46,42 @@ class Metadata(object):
         self._data['Notes'] = json.dumps(notes)
 
     def __repr__(self):
-        return json.dumps(self._data, indent = 4)
+        return self.to_json()
+
+    def copy(self):
+        return Metadata(data = dict(self._data))
+
+    @staticmethod
+    def from_cbz(path):
+        with zipfile.ZipFile(path, 'r') as archive:
+            base_dir = '.'
+            base_info = archive.infolist()[0]
+            if (base_info.is_dir()):
+                base_dir = base_info.filename
+
+            metadata_path = os.path.join(base_dir, METADATA_FILENAME)
+
+            try:
+                archive.getinfo(metadata_path)
+            except KeyError:
+                # This archive contains no metadata.
+                return Metadata()
+
+            xml = archive.read(metadata_path).decode(ENCODING)
+            return Metadata.from_xml(xml)
+
+    @staticmethod
+    def from_xml(text):
+        document = xml.etree.ElementTree.fromstring(text)
+
+        data = {}
+        for child in document:
+            data[child.tag] = child.text
+
+        return Metadata(data)
+
+    def update(self, other):
+        self._data.update(other._data)
 
     def to_xml(self):
         root = xml.etree.ElementTree.Element('ComicInfo')
@@ -85,3 +131,19 @@ def get_int(lower, upper, prompt):
             continue
 
         return value
+
+def remove_metadata_from_zipfile(zip_path):
+    return remove_from_zipfile(zip_path, METADATA_FILENAME_REGEX)
+
+def remove_from_zipfile(zip_path, filename_regex):
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = os.path.join(temp_dir, TEMP_ZIP_FILENAME)
+
+        with zipfile.ZipFile(zip_path, 'r') as old_archive:
+            with zipfile.ZipFile(temp_path, 'w') as new_archive:
+                for item in old_archive.infolist():
+                    if (re.search(filename_regex, item.filename) is None):
+                        data = old_archive.read(item.filename)
+                        new_archive.writestr(item, data)
+
+        shutil.move(temp_path, zip_path)

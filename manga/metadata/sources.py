@@ -45,7 +45,7 @@ class Source(abc.ABC):
                     return file.read()
 
         with urllib.request.urlopen(url) as response:
-            html = response.read().decode('utf-8')
+            html = response.read().decode(manga.metadata.common.ENCODING)
 
         if (cache_path is not None):
             os.makedirs(os.path.dirname(cache_path), exist_ok = True)

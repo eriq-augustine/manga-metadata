@@ -2,50 +2,30 @@
 Handle manga metadata.
 """
 
-import abc
 import argparse
-import json
-import os
-import re
 import sys
-import urllib.request
-import xml.etree.ElementTree
 
 import Levenshtein
-import bs4
 
 import manga.metadata.common
 import manga.metadata.sources
 
 DEFAULT_OUTPUT_PATH = 'ComicInfo.xml'
 
-def fetch(config):
-    name = config['name']
-    if (name is None):
-        raise ValueError("No name provided to fetch.")
-
-    source = manga.metadata.sources.MangaUpdates(**config)
+def fetch(name, cache_dir = None, use_first = False):
+    source = manga.metadata.sources.MangaUpdates(cache_dir = cache_dir)
 
     results = source.search(name)
     if (len(results) == 0):
         print("No results found matching name '%s'." % name)
-        return 1
+        return None
 
-    id, title = _pick_result(name, results, use_first = config['use_first'])
+    id, title = _pick_result(name, results, use_first = use_first)
     if (id is None):
         print("No matching result selected.")
-        return 0
+        return None
 
-    metadata = source.fetch(id)
-
-    out_path = config.get('output_path')
-    if (out_path is not None):
-        print("Writing metadata to '%s'." % (out_path))
-        metadata.write_xml(out_path)
-
-    if (config['stdout']):
-        print("Writing metadata to stdout.")
-        print(metadata.to_json())
+    return source.fetch(id)
 
 def _pick_result(name, results, use_first = False):
     if (len(results) == 1):
@@ -71,15 +51,28 @@ def _pick_result(name, results, use_first = False):
     return sim_results[index][1][0], sim_results[index][1][1]
 
 def main(args):
-    config = vars(args)
-    return fetch(config)
+    metadata = fetch(args.name, args.cache_dir, args.use_first)
+
+    if (metadata is None):
+        return 1
+
+    out_path = args.output_path
+    if (out_path is not None):
+        print("Writing metadata to '%s'." % (out_path))
+        metadata.write_xml(out_path)
+
+    if (args.stdout):
+        print("Writing metadata to stdout.")
+        print(metadata.to_json())
+
+    return 0
 
 def _load_args():
-    parser = argparse.ArgumentParser(description = "Manage manga metadata.")
+    parser = argparse.ArgumentParser(description = "Fetch manga metadata by name.")
 
     parser.add_argument('name',
         action = 'store', type = str,
-        help = 'The name of the manga to fetch metadata for')
+        help = 'the name of the manga to fetch metadata for')
 
     parser.add_argument('--cache', dest = 'cache_dir',
         action = 'store', type = str, default = None,
