@@ -42,13 +42,7 @@ def main(args):
     manga.metadata.common.remove_metadata_from_zipfile(args.path)
 
     with zipfile.ZipFile(args.path, 'a') as archive:
-        base_dir = '.'
-        base_info = archive.infolist()[0]
-        if (base_info.is_dir()):
-            base_dir = base_info.filename
-
-        metadata_path = os.path.join(base_dir, manga.metadata.common.METADATA_FILENAME)
-        with archive.open(metadata_path, 'w') as file:
+        with archive.open(manga.metadata.common.METADATA_FILENAME, 'w') as file:
             file.write((new_metadata.to_xml() + "\n").encode(manga.metadata.common.ENCODING))
 
     return 0

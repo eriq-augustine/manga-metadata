@@ -54,20 +54,13 @@ class Metadata(object):
     @staticmethod
     def from_cbz(path):
         with zipfile.ZipFile(path, 'r') as archive:
-            base_dir = '.'
-            base_info = archive.infolist()[0]
-            if (base_info.is_dir()):
-                base_dir = base_info.filename
-
-            metadata_path = os.path.join(base_dir, METADATA_FILENAME)
-
             try:
-                archive.getinfo(metadata_path)
+                archive.getinfo(METADATA_FILENAME)
             except KeyError:
                 # This archive contains no metadata.
                 return Metadata()
 
-            xml = archive.read(metadata_path).decode(ENCODING)
+            xml = archive.read(METADATA_FILENAME).decode(ENCODING)
             return Metadata.from_xml(xml)
 
     @staticmethod
