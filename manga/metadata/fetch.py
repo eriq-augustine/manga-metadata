@@ -10,8 +10,6 @@ import Levenshtein
 import manga.metadata.common
 import manga.metadata.sources
 
-DEFAULT_OUTPUT_PATH = 'ComicInfo.xml'
-
 def fetch(name, cache_dir = None, use_first = False):
     source = manga.metadata.sources.MangaUpdates(cache_dir = cache_dir)
 
@@ -37,7 +35,7 @@ def _pick_result(name, results, use_first = False):
     print("Found %d possible results." % (len(sim_results)))
 
     if (use_first):
-        print("Automatically choosing first result.")
+        print("Automatically choosing first result (%s)." % (sim_results[0][1][1]))
         return sim_results[0][1][0], sim_results[0][1][1]
 
     for i in range(len(sim_results)):
