@@ -45,7 +45,8 @@ class Source(abc.ABC):
                     return file.read()
 
         with urllib.request.urlopen(url) as response:
-            html = response.read().decode(manga.metadata.common.ENCODING)
+            data = response.read()
+            html = data.decode(manga.metadata.common.ENCODING, errors = 'replace')
 
         if (cache_path is not None):
             os.makedirs(os.path.dirname(cache_path), exist_ok = True)
@@ -114,7 +115,11 @@ class MangaUpdates(Source):
 
         metadata['Title'] = document.select_one('span.releasestitle').get_text()
         metadata['Series'] = metadata['Title']
-        metadata['Summary'] = document.select_one('div#div_desc_more').contents[0].strip()
+
+        if (document.select_one('div#div_desc_more') is not None):
+            metadata['Summary'] = document.select_one('div#div_desc_more').contents[0].strip()
+        else:
+            metadata['Summary'] = self._parse_single_section('Description', document)
 
         metadata['Year'] = self._parse_single_section('Year', document)
         metadata['Writer'] = ','.join(self._parse_multi_section('Author(s)', document))
@@ -173,7 +178,13 @@ class MangaUpdates(Source):
         if (values is None):
             return
 
-        values.remove('Log in to vote!')
-        values.remove('Show all (some hidden)')
+        remove_values = [
+            'Log in to vote!',
+            'Show all (some hidden)',
+        ]
+
+        for value in remove_values:
+            if (value in values):
+                values.remove(value)
 
         metadata['Tags'] = ','.join(values)

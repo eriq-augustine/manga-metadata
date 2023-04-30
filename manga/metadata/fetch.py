@@ -32,7 +32,7 @@ def _pick_result(name, results, use_first = False):
     sim_results = [(Levenshtein.ratio(name.lower(), result[1].lower()), result) for result in results]
     sim_results.sort(reverse = True)
 
-    print("Found %d possible results." % (len(sim_results)))
+    print("Found %d possible results matching '%s'." % (len(sim_results), name))
 
     if (use_first):
         print("Automatically choosing first result (%s)." % (sim_results[0][1][1]))

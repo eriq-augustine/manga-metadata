@@ -11,15 +11,20 @@ import zipfile
 import manga.metadata.common
 import manga.metadata.fetch
 
-def main(args):
-    if (not os.path.isfile(args.path)):
-        print("ERROR: No archive to update at '%s'." % (args.path))
+def update(path, args):
+    if (not os.path.isfile(path)):
+        print("ERROR: No archive to update at '%s'." % (path))
         return 1
 
-    match = re.match(r'^(.+)\s+v(\d+)\s+c(\d+[a-z]?)\.cbz$', os.path.basename(args.path).strip())
+    match = re.match(r'^(.+)\s+v(\d+)\s+c(\d+[a-z]?)\.cbz$', os.path.basename(path).strip())
     if (match is None):
-        print("ERROR: Cannot parse name/volume/chapter information from archive path: '%s'." % (args.path))
+        print("ERROR: Cannot parse name/volume/chapter information from archive path: '%s'." % (path))
         return 1
+
+    old_metadata, exists = manga.metadata.common.Metadata.from_cbz(path)
+    if (exists and args.no_clobber):
+        print("Metadata exists, skipping update: '%s'." % (path))
+        return 0
 
     name = match.group(1).strip()
     volume = str(int(match.group(2).strip()))
@@ -30,7 +35,6 @@ def main(args):
         print("ERROR: Unable to fetch metadata for '%s'." % (name))
         return 1
 
-    old_metadata = manga.metadata.common.Metadata.from_cbz(args.path)
     old_metadata.update(fetch_metadata)
 
     new_metadata = old_metadata.copy()
@@ -39,19 +43,27 @@ def main(args):
     new_metadata['Number'] = chapter
 
     # Remove any existing metadata file.
-    manga.metadata.common.remove_metadata_from_zipfile(args.path)
+    manga.metadata.common.remove_metadata_from_zipfile(path)
 
-    with zipfile.ZipFile(args.path, 'a') as archive:
+    with zipfile.ZipFile(path, 'a') as archive:
         with archive.open(manga.metadata.common.METADATA_FILENAME, 'w') as file:
             file.write((new_metadata.to_xml() + "\n").encode(manga.metadata.common.ENCODING))
 
     return 0
 
+def main(args):
+    exit_status = 0
+
+    for path in args.paths:
+        exit_status += update(path, args)
+
+    return exit_status
+
 def _load_args():
     parser = argparse.ArgumentParser(description = "Update the metadata in an existing cbz archive.")
 
-    parser.add_argument('path',
-        action = 'store', type = str,
+    parser.add_argument('paths',
+        action = 'store', type = str, nargs = '+',
         help = 'the path to the archive to update')
 
     parser.add_argument('--cache', dest = 'cache_dir',
@@ -61,6 +73,10 @@ def _load_args():
     parser.add_argument('--first', dest = 'use_first',
         action = 'store_true', default = False,
         help = 'when presented with choices, always choose the first option and do not prompt (default: %(default)s)')
+
+    parser.add_argument('--no-clobber', dest = 'no_clobber',
+        action = 'store_true', default = False,
+        help = 'if metadata alreay exists, leave the archive alone (default: %(default)s)')
 
     return parser.parse_args()
 

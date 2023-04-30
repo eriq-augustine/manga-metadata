@@ -58,10 +58,10 @@ class Metadata(object):
                 archive.getinfo(METADATA_FILENAME)
             except KeyError:
                 # This archive contains no metadata.
-                return Metadata()
+                return Metadata(), False
 
             xml = archive.read(METADATA_FILENAME).decode(ENCODING)
-            return Metadata.from_xml(xml)
+            return Metadata.from_xml(xml), True
 
     @staticmethod
     def from_xml(text):
